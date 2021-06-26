@@ -60,6 +60,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/all_to_all_decomposer.h"
 #include "tensorflow/compiler/xla/service/batch_dot_simplification.h"
 #include "tensorflow/compiler/xla/service/batchnorm_expander.h"
+#include "tensorflow/compiler/xla/service/bfloat16_normalization.h"
 #include "tensorflow/compiler/xla/service/buffer_assignment.h"
 #include "tensorflow/compiler/xla/service/call_inliner.h"
 #include "tensorflow/compiler/xla/service/cholesky_expander.h"
@@ -94,7 +95,6 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/hlo_constant_folding.h"
 #include "tensorflow/compiler/xla/service/hlo_cse.h"
 #include "tensorflow/compiler/xla/service/hlo_dce.h"
-#include "tensorflow/compiler/xla/service/hlo_element_type_converter.h"
 #include "tensorflow/compiler/xla/service/hlo_instruction.h"
 #include "tensorflow/compiler/xla/service/hlo_memory_scheduler.h"
 #include "tensorflow/compiler/xla/service/hlo_opcode.h"
@@ -254,6 +254,22 @@ class CollectProfileCandidates : public DfsHloVisitorWithDefault {
     TF_RETURN_IF_ERROR(call->to_apply()->Accept(&candidates_for_call));
     return Status::OK();
   }
+  // Recurse into "conditional" so we can profile inside of it.
+  Status HandleConditional(HloInstruction* conditional) override {
+    TF_RETURN_IF_ERROR(DefaultAction(conditional));
+
+    CollectProfileCandidates candidates_for_true(hlo_to_profile_idx_,
+                                                 assigned_indices_);
+    TF_RETURN_IF_ERROR(
+        conditional->true_computation()->Accept(&candidates_for_true));
+
+    CollectProfileCandidates candidates_for_false(hlo_to_profile_idx_,
+                                                  assigned_indices_);
+    TF_RETURN_IF_ERROR(
+        conditional->false_computation()->Accept(&candidates_for_false));
+
+    return Status::OK();
+  }
 
   // Skip constants, there is nothing to profile.
   Status HandleConstant(HloInstruction*) override { return Status::OK(); }
@@ -320,7 +336,8 @@ Status CpuCompiler::RunHloPassesThroughLayoutAssn(
   // Convert BF16 operations to F32 operations so that the CPU backend can
   // support BF16 operations without directly implementing a BF16 lowering for
   // most ops.
-  pipeline.AddPass<HloElementTypeConverter>(BF16, F32);
+  BFloat16Support bf16;
+  pipeline.AddPass<BFloat16Normalization>(&bf16);
   // After canonicalization, there may be more batch dots that can be
   // simplified.
   pipeline.AddPass<BatchDotSimplification>();
@@ -729,7 +746,7 @@ StatusOr<std::unique_ptr<Executable>> CpuCompiler::RunBackend(
                           absl::make_unique<SequentialHloOrdering>(schedule),
                           BufferSizeBytesFunction(), memory_alignment,
                           /*allocate_buffers_for_constants=*/true));
-  DumpHloModuleIfEnabled(*module, *assignment, "after_optimizations");
+  DumpHloModuleIfEnabled(*module, *assignment, "cpu_after_optimizations");
 
   // Each computation is a single function.  Emit all embedded computations
   // before the entry computation. The order of computations returned from
@@ -931,7 +948,7 @@ CpuCompiler::CompileAheadOfTime(std::unique_ptr<HloModuleGroup> module_group,
       DumpToFileInDirOrStdout(*module, "", "buffer_assignment",
                               assignment->ToString());
     }
-    DumpHloModuleIfEnabled(*module, *assignment, "after_optimizations");
+    DumpHloModuleIfEnabled(*module, *assignment, "cpu_after_optimizations");
 
     std::unordered_map<const HloInstruction*, int64> instruction_to_profile_idx;
     std::unordered_map<const HloComputation*, int64> computation_to_profile_idx;

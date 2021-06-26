@@ -151,22 +151,33 @@ const char* kEmptyTensorName = "";
 // For flex delegate, see also the strong override in
 // lite/delegates/flex/delegate.cc.
 TFLITE_ATTRIBUTE_WEAK Interpreter::TfLiteDelegatePtr AcquireFlexDelegate() {
+  // TF_AcquireFlexDelegate isn't defined on Android, and the following block of
+  // code would have no effect if TF_AcquireFlexDelegate isn't defined, so we
+  // only enable that block for non-Android platforms.  Also, on Android 4.4
+  // (Kitkat), the dlsym() implementation has a bug where dlsym() of an unknown
+  // name will result in a SIGFPE, which would crash the process, so it's
+  // important that on Android 4.4 we *don't* call SharedLibrary::GetSymbol
+  // unless the symbol is sure to exist.
+#if !defined(__ANDROID__)
   auto acquire_flex_delegate_func =
       reinterpret_cast<Interpreter::TfLiteDelegatePtr (*)()>(
           SharedLibrary::GetSymbol("TF_AcquireFlexDelegate"));
   if (acquire_flex_delegate_func) {
     return acquire_flex_delegate_func();
   }
+#endif
 
 #if !defined(TFLITE_IS_MOBILE_PLATFORM)
   // Load TF_AcquireFlexDelegate() from _pywrap_tensorflow_internal.so if it is
   // available.
-  const char* filename_pywrap_tensorflow_internal =
 #if defined(_WIN32)
-      "_pywrap_tensorflow_internal.pyd";
+  const wchar_t* filename_pywrap_tensorflow_internal =
+      L"_pywrap_tensorflow_internal.pyd";
 #elif defined(__APPLE__)
+  const char* filename_pywrap_tensorflow_internal =
       "python/_pywrap_tensorflow_internal.so";
 #else
+  const char* filename_pywrap_tensorflow_internal =
       "_pywrap_tensorflow_internal.so";
 #endif
   void* lib_tf_internal =
@@ -174,7 +185,7 @@ TFLITE_ATTRIBUTE_WEAK Interpreter::TfLiteDelegatePtr AcquireFlexDelegate() {
 #if defined(_WIN32)
   if (lib_tf_internal == nullptr) {
     lib_tf_internal = SharedLibrary::LoadLibrary(
-        "_pywrap_tensorflow_interpreter_wrapper.pyd");
+        L"_pywrap_tensorflow_interpreter_wrapper.pyd");
   }
 #endif
   if (lib_tf_internal) {
@@ -808,12 +819,6 @@ void InterpreterBuilder::AddDelegate(TfLiteDelegate* delegate) {
   } else {
     delegates_.push_back(delegate);
   }
-}
-
-// Enables preserving intermediates for debugging.
-InterpreterBuilder& InterpreterBuilder::PreserveAllTensorsExperimental() {
-  preserve_all_tensors_ = true;
-  return *this;
 }
 
 }  // namespace tflite

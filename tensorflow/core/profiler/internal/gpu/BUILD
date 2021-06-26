@@ -21,6 +21,10 @@ load(
     "tf_additional_cupti_deps",
 )
 load("//tensorflow/core/profiler/builds:build_config.bzl", "tf_profiler_copts")
+load(
+    "//tensorflow/core/platform/default:cuda_build_defs.bzl",
+    "if_cuda_is_configured",
+)
 
 package(
     default_visibility = ["//tensorflow:internal"],
@@ -44,7 +48,6 @@ tf_cuda_library(
         "//tensorflow/core:lib",
         "//tensorflow/core:lib_internal",
         "//tensorflow/core:protos_all_cc",
-        "//tensorflow/core/profiler/internal/cpu:annotation_stack",
         "//tensorflow/core/profiler/lib:profiler_factory",
         "//tensorflow/core/profiler/lib:profiler_interface",
         "//tensorflow/core/profiler/protobuf:xplane_proto_cc",
@@ -62,7 +65,7 @@ tf_cuda_cc_test(
     name = "device_tracer_test",
     size = "small",
     srcs = ["device_tracer_test.cc"],
-    args = ["--heap_check=local"],
+    args = ["--heap_check="],
     linkstatic = tf_kernel_tests_linkstatic(),
     tags = tf_cuda_tests_tags() + [
         "nomac",
@@ -70,6 +73,7 @@ tf_cuda_cc_test(
     ],
     deps = [
         ":device_tracer",
+        "@com_google_absl//absl/strings",
         "//tensorflow/cc:cc_ops",
         "//tensorflow/core:all_kernels",
         "//tensorflow/core:core_cpu",
@@ -90,7 +94,10 @@ tf_cuda_cc_test(
         "//tensorflow/core/profiler/utils:tf_xplane_visitor",
         "//tensorflow/core/profiler/utils:xplane_schema",
         "//tensorflow/core/profiler/utils:xplane_utils",
-    ],
+    ] + if_cuda_is_configured([
+        "@local_config_cuda//cuda:cuda_headers",
+        "@local_config_cuda//cuda:cupti_headers",
+    ]),
 )
 
 tf_cuda_library(
@@ -136,6 +143,7 @@ tf_cuda_library(
         "//tensorflow/core:lib",
         "//tensorflow/core/profiler/internal/cpu:annotation_stack",
         "//tensorflow/core/profiler/lib:scoped_annotation",
+        "//tensorflow/core/profiler/utils:buffer_pool",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:node_hash_map",
         "@com_google_absl//absl/container:node_hash_set",

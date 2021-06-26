@@ -92,7 +92,8 @@ def tflite_flex_cc_library(
         models = [],
         additional_deps = [],
         testonly = 0,
-        visibility = ["//visibility:public"]):
+        visibility = ["//visibility:public"],
+        link_symbol = True):
     """A rule to generate a flex delegate with only ops to run listed models.
 
     Args:
@@ -119,8 +120,8 @@ def tflite_flex_cc_library(
             name = "%s_tensorflow_lib" % name,
             srcs = if_mobile([
                 clean_dep("//tensorflow/core:portable_op_registrations_and_gradients"),
-                clean_dep("//tensorflow/core/kernels:android_core_ops"),
-                clean_dep("//tensorflow/core/kernels:android_extended_ops"),
+                clean_dep("//tensorflow/core/kernels:portable_core_ops"),
+                clean_dep("//tensorflow/core/kernels:portable_extended_ops"),
             ]) + [CUSTOM_KERNEL_HEADER.header],
             copts = tf_copts(android_optimization_level_override = None) + tf_opts_nortti_if_lite_protos() + if_ios(["-Os"]),
             defines = [
@@ -136,7 +137,7 @@ def tflite_flex_cc_library(
                 CUSTOM_KERNEL_HEADER.include_path,
             ],
             textual_hdrs = [
-                clean_dep("//tensorflow/core/kernels:android_all_ops_textual_hdrs"),
+                clean_dep("//tensorflow/core/kernels:portable_all_ops_textual_hdrs"),
             ],
             visibility = visibility,
             deps = flex_portable_tensorflow_deps() + [
@@ -149,6 +150,10 @@ def tflite_flex_cc_library(
             testonly = testonly,
         )
         portable_tensorflow_lib = ":%s_tensorflow_lib" % name
+
+    delegate_symbol = []
+    if link_symbol:
+        delegate_symbol.append(clean_dep("//tensorflow/lite/delegates/flex:delegate_symbol"))
 
     # Define a custom flex delegate with above tensorflow_lib.
     native.cc_library(
@@ -172,7 +177,7 @@ def tflite_flex_cc_library(
                 clean_dep("//tensorflow/core:tensorflow"),
                 clean_dep("//tensorflow/lite/c:common"),
             ],
-        }) + additional_deps,
+        }) + additional_deps + delegate_symbol,
         testonly = testonly,
         alwayslink = 1,
     )
